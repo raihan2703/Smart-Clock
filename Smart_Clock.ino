@@ -1,3 +1,4 @@
+#include <ArduinoOTA.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <ESP8266WiFi.h>
@@ -41,6 +42,9 @@ char arrTemp[10];
 //--------- Pin LDR -------------------
 #define ldrPin A0
 
+#define touchPin 4
+bool touchDetected = false;
+
 int counter = 0;
 String posisi = "jam";
 
@@ -49,6 +53,7 @@ void setup() {
   matrix.begin();
   matrix.displayClear();
   dht.begin();
+  pinMode(touchPin, INPUT);
 
   // ---------- WiFi Manager ----------
   // Jika gagal konek, ESP akan jadi Access Point (contoh SSID: SmartClock_Setup)
@@ -58,12 +63,33 @@ void setup() {
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
 
+  // ---------- OTA Setup ----------
+  ArduinoOTA.setHostname("SmartClock_ESP8266"); // nama perangkat saat OTA
+  ArduinoOTA.onStart([]() {
+    Serial.println("Mulai OTA update...");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nSelesai OTA update!");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+  });
+  ArduinoOTA.begin();
+  Serial.println("OTA ready. Silakan upload sketch melalui jaringan WiFi yang sama.");
+
   timeClient.begin();
 }
 
 void loop() {
+  int touched = digitalRead(touchPin);
+  if (touched == HIGH) {
+    touchDetected = true;
+  }
   int ldrValue = analogRead(ldrPin);
-  int brightness = map(ldrValue, 0, 1023, 15, 0);
+  int brightness = map(ldrValue, 0, 1023, 0, 15);
   matrix.setIntensity(brightness);
   if (posisi == "jam") {
     baca_jam();
@@ -73,6 +99,17 @@ void loop() {
     baca_suhu();
   }
 }
+
+void gantiMode() {
+  if (posisi == "jam") posisi = "tanggal";
+  else if (posisi == "tanggal") posisi = "suhu";
+  else if (posisi == "suhu") posisi = "jam";
+
+  matrix.displayClear();
+  Serial.print("Mode berubah ke: ");
+  Serial.println(posisi);
+}
+
 
 void baca_jam() {
   timeClient.update();
@@ -95,9 +132,11 @@ void baca_jam() {
   }
 
   counter++;
-  if (counter >= 20) {  // 20 detik tampil
-    posisi = "tanggal";
+  if (touchDetected || counter >= 20) {  // 20 detik tampil
+    //posisi = "tanggal";
+    touchDetected = false;
     counter = 0;
+    gantiMode();
     matrix.displayClear();
   }
   delay(1000);
@@ -117,16 +156,29 @@ void baca_tanggal() {
 
   tanggal_sekarang.toCharArray(arrTgl, sizeof(arrTgl));
   Serial.println(tanggal_sekarang);
+  if(touchDetected){
+    touchDetected = false;
+    posisi = "suhu";
+    //matrix.displaySuspend(true);
+    counter = 0;
+    matrix.displayReset();
+    matrix.displayClear();
+    delay(1000);
+  } else {
 
   if (matrix.displayAnimate()) {
+    
     matrix.displayText(arrTgl, PA_CENTER, 100, 0, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
     matrix.displayReset();
     counter++;
     if (counter >= 2) {
       posisi = "suhu";
+      //touchDetected = false;
       counter = 0;
+      //gantiMode();
       matrix.displayClear();
     }
+  }
   }
   delay(100);
 }
@@ -147,11 +199,12 @@ void baca_suhu() {
   Serial.println(temp);
 
   counter++;
-  if (counter >= 5) {  // tampil selama 5 detik
-    posisi = "jam";
+  if (touchDetected || counter >= 5) {  // tampil selama 5 detik
+    //posisi = "jam";
+    touchDetected = false;
     counter = 0;
+    gantiMode();
     matrix.displayClear();
   }
   delay(1000);
 }
-
