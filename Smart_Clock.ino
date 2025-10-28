@@ -84,6 +84,7 @@ void setup() {
 }
 
 void loop() {
+  ArduinoOTA.handle();
   int touched = digitalRead(touchPin);
   if (touched == HIGH) {
     touchDetected = true;
